@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -10,8 +11,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 SYDNEY = ZoneInfo("Australia/Sydney")
-DEFAULT_BASE = Path("/Users/macmini-4/.openclaw/workspace/content_pipeline")
-DEFAULT_CONFIG = DEFAULT_BASE / "config" / "pipelines.json"
+DEFAULT_REPO = Path("/Users/macmini-4/.openclaw/repos/content_pipeline")
+DEFAULT_BASE = Path("/Users/macmini-4/.openclaw/runtime/content_pipeline/landing")
+DEFAULT_CONFIG = DEFAULT_REPO / "config" / "pipelines.json"
 SUBJECT_RE = re.compile(r"^(?P<task>[a-z0-9_]+)_\[(?P<pipeline>\d+)\]$", re.IGNORECASE)
 GOG_BIN = shutil.which("gog") or "/opt/homebrew/bin/gog"
 
@@ -240,9 +242,9 @@ def collect_message_ids(account: str, rules: list, processed_label: str, max_res
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch pipeline email attachments into structured folders.")
-    parser.add_argument("--config", default=str(DEFAULT_CONFIG))
-    parser.add_argument("--account")
-    parser.add_argument("--base-dir", default=str(DEFAULT_BASE))
+    parser.add_argument("--config", default=os.environ.get("CONTENT_PIPELINE_CONFIG", str(DEFAULT_CONFIG)))
+    parser.add_argument("--account", default=os.environ.get("CONTENT_PIPELINE_ACCOUNT"))
+    parser.add_argument("--base-dir", default=os.environ.get("CONTENT_PIPELINE_BASE", str(DEFAULT_BASE)))
     parser.add_argument("--label")
     parser.add_argument("--max-results", type=int, default=10)
     parser.add_argument("--message-id")

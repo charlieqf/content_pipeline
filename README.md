@@ -1,6 +1,6 @@
 # content_pipeline
 
-Local automation and landed assets for Charles's content pipeline.
+Local automation for Charles's content pipeline.
 
 ## Email landing workflow
 
@@ -9,19 +9,19 @@ This repo includes a Gmail attachment fetcher for pipeline-style emails such as:
 - `voice_to_video_[1]`
 - future rules like `voice_to_video_[2]`, `image_to_video_[1]`, etc.
 
-Matching attachments are saved into:
+Matching attachments are saved into the runtime landing directory, not the repo working tree:
 
 ```text
-<task>/<pipeline>/YYYYMMDD/incoming/<gmail_message_id>/
+/Users/macmini-4/.openclaw/runtime/content_pipeline/landing/<task>/<pipeline>/YYYYMMDD/incoming/<gmail_message_id>/
 ```
 
 Example:
 
 ```text
-voice_to_video/1/20260409/incoming/19d70f665582db0a/
+/Users/macmini-4/.openclaw/runtime/content_pipeline/landing/voice_to_video/1/20260409/incoming/19d70f665582db0a/
 ```
 
-Each landed email also gets a `metadata.json` file with message details and saved file info.
+Each landed email directory contains only raw input files plus `metadata.json`.
 
 ## Config
 
@@ -50,6 +50,20 @@ Example:
 ```
 
 Add more rules by appending to `rules`.
+
+## Environment variables
+
+These override defaults when present:
+
+- `CONTENT_PIPELINE_BASE`
+- `CONTENT_PIPELINE_CONFIG`
+- `CONTENT_PIPELINE_ACCOUNT`
+
+Defaults:
+
+- code repo: `/Users/macmini-4/.openclaw/repos/content_pipeline`
+- runtime landing: `/Users/macmini-4/.openclaw/runtime/content_pipeline/landing`
+- runtime logs: `/Users/macmini-4/.openclaw/runtime/content_pipeline/logs`
 
 ## Scripts
 
@@ -108,12 +122,19 @@ launchctl list | grep content-pipeline
 Logs:
 
 ```text
-logs/email_pipeline.log
-logs/launchd.stdout.log
-logs/launchd.stderr.log
+/Users/macmini-4/.openclaw/runtime/content_pipeline/logs/email_pipeline.log
+/Users/macmini-4/.openclaw/runtime/content_pipeline/logs/launchd.stdout.log
+/Users/macmini-4/.openclaw/runtime/content_pipeline/logs/launchd.stderr.log
 ```
+
+## Boundaries
+
+- This project only handles `email -> raw attachments + metadata.json`.
+- It does not create derived outputs.
+- It does not touch downstream directories.
+- Runtime landing data is intentionally kept out of the git repo.
 
 ## Notes
 
 - MP4 files are git-ignored.
-- MP3s, metadata, scripts, config, and docs are committed by default.
+- Scripts, config, and docs are committed by default.

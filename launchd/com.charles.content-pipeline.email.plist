@@ -8,11 +8,11 @@
     <key>ProgramArguments</key>
     <array>
       <string>/bin/zsh</string>
-      <string>/Users/macmini-4/.openclaw/workspace/content_pipeline/scripts/run_email_pipeline.sh</string>
+      <string>/Users/macmini-4/.openclaw/repos/content_pipeline/scripts/run_email_pipeline.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/macmini-4/.openclaw/workspace/content_pipeline</string>
+    <string>/Users/macmini-4/.openclaw/repos/content_pipeline</string>
 
     <key>StartInterval</key>
     <integer>300</integer>
@@ -21,9 +21,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/macmini-4/.openclaw/workspace/content_pipeline/logs/launchd.stdout.log</string>
+    <string>/Users/macmini-4/.openclaw/runtime/content_pipeline/logs/launchd.stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/macmini-4/.openclaw/workspace/content_pipeline/logs/launchd.stderr.log</string>
+    <string>/Users/macmini-4/.openclaw/runtime/content_pipeline/logs/launchd.stderr.log</string>
   </dict>
 </plist>
