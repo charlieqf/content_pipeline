@@ -5,7 +5,6 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export CONTENT_PIPELINE_REPO="${CONTENT_PIPELINE_REPO:-/Users/macmini-4/.openclaw/repos/content_pipeline}"
 export CONTENT_PIPELINE_BASE="${CONTENT_PIPELINE_BASE:-/Users/macmini-4/.openclaw/runtime/content_pipeline/landing}"
 export CONTENT_PIPELINE_CONFIG="${CONTENT_PIPELINE_CONFIG:-$CONTENT_PIPELINE_REPO/config/pipelines.json}"
-export CONTENT_PIPELINE_ACCOUNT="${CONTENT_PIPELINE_ACCOUNT:-content.pipeline.1@gmail.com}"
 
 LOG_DIR="/Users/macmini-4/.openclaw/runtime/content_pipeline/logs"
 mkdir -p "$LOG_DIR" "$CONTENT_PIPELINE_BASE"

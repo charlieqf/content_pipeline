@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -105,7 +106,6 @@ def build_query(rule: dict, processed_label: str):
     subject = rule["subject"]
     filename_query = rule.get("filenameQuery", "")
     parts = [
-        "is:unread",
         "has:attachment",
         f'subject:"{subject}"',
         f'-label:"{processed_label}"',
@@ -150,6 +150,13 @@ def attachment_matches(item: dict, rule: dict):
     return mime in mime_allow and bool(filename)
 
 
+def finalize_downloads(staging_dir: Path, target_dir: Path):
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    staging_dir.replace(target_dir)
+
+
 def process_message(account: str, base: Path, label_name: str, rules_by_subject: dict, message_id: str, dry_run: bool = False):
     meta = get_metadata(account, message_id)
     headers = meta.get("headers", {})
@@ -182,22 +189,26 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
         return {"messageId": message_id, "status": "skipped", "reason": "no_matching_attachments"}
 
     saved = []
+    staging_dir = None
     if not dry_run:
-        target_dir.mkdir(parents=True, exist_ok=True)
-    for item in matched:
-        original = item.get("filename") or "attachment"
-        out_path = unique_path(target_dir / safe_name(original))
-        if not dry_run:
-            download_attachment(account, message_id, item["attachmentId"], out_path)
-        saved.append({
-            "filename": out_path.name,
-            "path": str(out_path),
-            "size": item.get("size"),
-            "mimeType": item.get("mimeType"),
-            "attachmentId": item.get("attachmentId"),
-        })
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(tempfile.mkdtemp(prefix=f"{message_id}.", dir=str(target_dir.parent)))
+    try:
+        output_dir = target_dir if dry_run else staging_dir
+        for item in matched:
+            original = item.get("filename") or "attachment"
+            out_path = unique_path(output_dir / safe_name(original))
+            if not dry_run:
+                download_attachment(account, message_id, item["attachmentId"], out_path)
+            saved.append({
+                "filename": out_path.name,
+                "path": str(target_dir / out_path.name),
+                "size": item.get("size"),
+                "mimeType": item.get("mimeType"),
+                "attachmentId": item.get("attachmentId"),
+            })
 
-    metadata = {
+        metadata = {
         "messageId": message_id,
         "threadId": message.get("threadId"),
         "historyId": message.get("historyId"),
@@ -211,9 +222,14 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
         "savedAt": datetime.now(tz=SYDNEY).isoformat(),
         "savedFiles": saved,
     }
-    if not dry_run:
-        (target_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        mark_processed(account, message_id, label_name)
+        if not dry_run:
+            (staging_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+            finalize_downloads(staging_dir, target_dir)
+            mark_processed(account, message_id, label_name)
+    except Exception:
+        if staging_dir and staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
 
     return {
         "messageId": message_id,
