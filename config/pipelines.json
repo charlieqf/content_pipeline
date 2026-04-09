@@ -1,0 +1,13 @@
+{
+  "account": "content.pipeline.1@gmail.com",
+  "processedLabel": "processed/content_pipeline",
+  "rules": [
+    {
+      "subject": "voice_to_video_[1]",
+      "task": "voice_to_video",
+      "pipeline": "1",
+      "attachmentExtensions": [".mp3"],
+      "filenameQuery": "filename:mp3"
+    }
+  ]
+}
