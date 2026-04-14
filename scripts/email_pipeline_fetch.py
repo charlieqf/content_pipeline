@@ -6,9 +6,9 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 SYDNEY = ZoneInfo("Australia/Sydney")
@@ -22,7 +22,9 @@ GOG_BIN = shutil.which("gog") or "/opt/homebrew/bin/gog"
 def run_cmd(args):
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(args)}\n{result.stderr.strip()}")
+        raise RuntimeError(
+            f"Command failed ({result.returncode}): {' '.join(args)}\n{result.stderr.strip()}"
+        )
     return result.stdout
 
 
@@ -39,23 +41,53 @@ def ensure_label(account: str, label_name: str) -> None:
     labels = gog_json([GOG_BIN, "gmail", "labels", "list", "--account", account])
     names = {item.get("name") for item in labels if isinstance(item, dict)}
     if label_name not in names:
-        run_cmd([GOG_BIN, "gmail", "labels", "create", label_name, "--account", account, "--no-input"])
+        run_cmd(
+            [
+                GOG_BIN,
+                "gmail",
+                "labels",
+                "create",
+                label_name,
+                "--account",
+                account,
+                "--no-input",
+            ]
+        )
 
 
 def search_messages(account: str, query: str, max_results: int):
-    rows = gog_json([GOG_BIN, "gmail", "search", query, "--account", account, "--max", str(max_results)])
+    rows = gog_json(
+        [
+            GOG_BIN,
+            "gmail",
+            "search",
+            query,
+            "--account",
+            account,
+            "--max",
+            str(max_results),
+        ]
+    )
     if isinstance(rows, dict):
         return [rows]
     return rows
 
 
 def get_metadata(account: str, message_id: str):
-    return gog_json([
-        GOG_BIN, "gmail", "get", message_id,
-        "--account", account,
-        "--format", "metadata",
-        "--headers", "Subject,From,Date",
-    ])
+    return gog_json(
+        [
+            GOG_BIN,
+            "gmail",
+            "get",
+            message_id,
+            "--account",
+            account,
+            "--format",
+            "metadata",
+            "--headers",
+            "Subject,From,Date",
+        ]
+    )
 
 
 def get_attachments(account: str, message_id: str):
@@ -88,6 +120,31 @@ def parse_subject(subject: str):
     return m.group("task"), m.group("pipeline")
 
 
+def rule_subjects(rule: dict):
+    subjects = []
+    primary = str(rule.get("subject") or "").strip()
+    if primary:
+        subjects.append(primary)
+    aliases = rule.get("subjectAliases", [])
+    if isinstance(aliases, list):
+        for alias in aliases:
+            text = str(alias or "").strip()
+            if text and text not in subjects:
+                subjects.append(text)
+    return subjects
+
+
+def rule_search_terms(rule: dict):
+    terms = []
+    task = str(rule.get("task") or "").strip()
+    if task:
+        terms.append(task)
+    for subject in rule_subjects(rule):
+        if subject not in terms:
+            terms.append(subject)
+    return terms
+
+
 def build_rule_index(config: dict):
     rules = {}
     for rule in config.get("rules", []):
@@ -97,15 +154,15 @@ def build_rule_index(config: dict):
         if not subject and task and pipeline:
             subject = f"{task}_[{pipeline}]"
             rule["subject"] = subject
-        if subject:
-            rules[subject] = rule
+        for candidate in rule_subjects(rule):
+            rules[candidate] = rule
     return rules
 
 
-def build_query(rule: dict, processed_label: str):
-    subject = rule["subject"]
+def build_query(subject: str, rule: dict, processed_label: str):
     filename_query = rule.get("filenameQuery", "")
     parts = [
+        "in:anywhere",
         "has:attachment",
         f'subject:"{subject}"',
         f'-label:"{processed_label}"',
@@ -115,29 +172,71 @@ def build_query(rule: dict, processed_label: str):
     return " ".join(parts)
 
 
-def landing_dir(base: Path, task: str, pipeline: str, dt: datetime, message_id: str) -> Path:
+def write_debug_search_summary(
+    debug_path: Optional[Path],
+    *,
+    account: str,
+    processed_label: str,
+    queries: list[dict],
+) -> None:
+    if not debug_path:
+        return
+    debug_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generatedAt": datetime.now(tz=SYDNEY).isoformat(),
+        "account": account,
+        "processedLabel": processed_label,
+        "queries": queries,
+    }
+    debug_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def landing_dir(
+    base: Path, task: str, pipeline: str, dt: datetime, message_id: str
+) -> Path:
     day = dt.astimezone(SYDNEY).strftime("%Y%m%d")
     return base / task / pipeline / day / "incoming" / message_id
 
 
-def download_attachment(account: str, message_id: str, attachment_id: str, out_path: Path):
+def download_attachment(
+    account: str, message_id: str, attachment_id: str, out_path: Path
+):
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    run_cmd([
-        GOG_BIN, "gmail", "attachment", message_id, attachment_id,
-        "--account", account,
-        "--out", str(out_path),
-        "--no-input",
-    ])
+    run_cmd(
+        [
+            GOG_BIN,
+            "gmail",
+            "attachment",
+            message_id,
+            attachment_id,
+            "--account",
+            account,
+            "--out",
+            str(out_path),
+            "--no-input",
+        ]
+    )
 
 
 def mark_processed(account: str, message_id: str, label_name: str):
-    run_cmd([
-        GOG_BIN, "gmail", "batch", "modify", message_id,
-        "--account", account,
-        "--add", label_name,
-        "--remove", "UNREAD",
-        "--no-input",
-    ])
+    run_cmd(
+        [
+            GOG_BIN,
+            "gmail",
+            "batch",
+            "modify",
+            message_id,
+            "--account",
+            account,
+            "--add",
+            label_name,
+            "--remove",
+            "UNREAD",
+            "--no-input",
+        ]
+    )
 
 
 def attachment_matches(item: dict, rule: dict):
@@ -146,22 +245,27 @@ def attachment_matches(item: dict, rule: dict):
     exts = [e.lower() for e in rule.get("attachmentExtensions", [".mp3"])]
     if any(filename.endswith(ext) for ext in exts):
         return True
-    mime_allow = set(m.lower() for m in rule.get("mimeTypes", ["audio/mpeg", "audio/mp3", "application/octet-stream"]))
+    mime_allow = set(
+        m.lower()
+        for m in rule.get(
+            "mimeTypes", ["audio/mpeg", "audio/mp3", "application/octet-stream"]
+        )
+    )
     return mime in mime_allow and bool(filename)
 
 
-def finalize_downloads(staging_dir: Path, target_dir: Path):
-    target_dir.parent.mkdir(parents=True, exist_ok=True)
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-    staging_dir.replace(target_dir)
-
-
-def process_message(account: str, base: Path, label_name: str, rules_by_subject: dict, message_id: str, dry_run: bool = False):
+def process_message(
+    account: str,
+    base: Path,
+    label_name: str,
+    rules_by_subject: dict,
+    message_id: str,
+    dry_run: bool = False,
+):
     meta = get_metadata(account, message_id)
     headers = meta.get("headers", {})
     message = meta.get("message", {})
-    subject = headers.get("subject", "")
+    subject = str(headers.get("subject") or "").strip()
     sender = headers.get("from", "")
     date_str = headers.get("date", "")
 
@@ -169,7 +273,11 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
     if not rule:
         task, pipeline = parse_subject(subject)
         if not task or not pipeline:
-            return {"messageId": message_id, "status": "skipped", "reason": f"subject_not_supported:{subject}"}
+            return {
+                "messageId": message_id,
+                "status": "skipped",
+                "reason": f"subject_not_supported:{subject}",
+            }
         rule = {
             "subject": subject,
             "task": task,
@@ -186,29 +294,31 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
     matched = [item for item in attachments if attachment_matches(item, rule)]
 
     if not matched:
-        return {"messageId": message_id, "status": "skipped", "reason": "no_matching_attachments"}
+        return {
+            "messageId": message_id,
+            "status": "skipped",
+            "reason": "no_matching_attachments",
+        }
 
     saved = []
-    staging_dir = None
     if not dry_run:
-        target_dir.parent.mkdir(parents=True, exist_ok=True)
-        staging_dir = Path(tempfile.mkdtemp(prefix=f"{message_id}.", dir=str(target_dir.parent)))
-    try:
-        output_dir = target_dir if dry_run else staging_dir
-        for item in matched:
-            original = item.get("filename") or "attachment"
-            out_path = unique_path(output_dir / safe_name(original))
-            if not dry_run:
-                download_attachment(account, message_id, item["attachmentId"], out_path)
-            saved.append({
+        target_dir.mkdir(parents=True, exist_ok=True)
+    for item in matched:
+        original = item.get("filename") or "attachment"
+        out_path = unique_path(target_dir / safe_name(original))
+        if not dry_run:
+            download_attachment(account, message_id, item["attachmentId"], out_path)
+        saved.append(
+            {
                 "filename": out_path.name,
-                "path": str(target_dir / out_path.name),
+                "path": str(out_path),
                 "size": item.get("size"),
                 "mimeType": item.get("mimeType"),
                 "attachmentId": item.get("attachmentId"),
-            })
+            }
+        )
 
-        metadata = {
+    metadata = {
         "messageId": message_id,
         "threadId": message.get("threadId"),
         "historyId": message.get("historyId"),
@@ -222,14 +332,11 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
         "savedAt": datetime.now(tz=SYDNEY).isoformat(),
         "savedFiles": saved,
     }
-        if not dry_run:
-            (staging_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-            finalize_downloads(staging_dir, target_dir)
-            mark_processed(account, message_id, label_name)
-    except Exception:
-        if staging_dir and staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
-        raise
+    if not dry_run:
+        (target_dir / "metadata.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        mark_processed(account, message_id, label_name)
 
     return {
         "messageId": message_id,
@@ -243,24 +350,53 @@ def process_message(account: str, base: Path, label_name: str, rules_by_subject:
     }
 
 
-def collect_message_ids(account: str, rules: list, processed_label: str, max_results: int):
+def collect_message_ids(
+    account: str,
+    rules: list,
+    processed_label: str,
+    max_results: int,
+    debug_path: Optional[Path] = None,
+):
     ids = []
     seen = set()
+    debug_queries = []
     for rule in rules:
-        query = build_query(rule, processed_label)
-        for row in search_messages(account, query, max_results):
-            message_id = row.get("ID")
-            if message_id and message_id not in seen:
-                seen.add(message_id)
-                ids.append(message_id)
+        for term in rule_search_terms(rule):
+            query = build_query(term, rule, processed_label)
+            rows = search_messages(account, query, max_results)
+            debug_queries.append(
+                {
+                    "query": query,
+                    "result_count": len(rows),
+                    "message_ids": [row.get("id") or row.get("ID") for row in rows if (row.get("id") or row.get("ID"))],
+                }
+            )
+            for row in rows:
+                message_id = row.get("id") or row.get("ID")
+                if message_id and message_id not in seen:
+                    seen.add(message_id)
+                    ids.append(message_id)
+    write_debug_search_summary(
+        debug_path,
+        account=account,
+        processed_label=processed_label,
+        queries=debug_queries,
+    )
     return ids
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch pipeline email attachments into structured folders.")
-    parser.add_argument("--config", default=os.environ.get("CONTENT_PIPELINE_CONFIG", str(DEFAULT_CONFIG)))
+    parser = argparse.ArgumentParser(
+        description="Fetch pipeline email attachments into structured folders."
+    )
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("CONTENT_PIPELINE_CONFIG", str(DEFAULT_CONFIG)),
+    )
     parser.add_argument("--account", default=os.environ.get("CONTENT_PIPELINE_ACCOUNT"))
-    parser.add_argument("--base-dir", default=os.environ.get("CONTENT_PIPELINE_BASE", str(DEFAULT_BASE)))
+    parser.add_argument(
+        "--base-dir", default=os.environ.get("CONTENT_PIPELINE_BASE", str(DEFAULT_BASE))
+    )
     parser.add_argument("--label")
     parser.add_argument("--max-results", type=int, default=10)
     parser.add_argument("--message-id")
@@ -273,6 +409,7 @@ def main():
     base = Path(args.base_dir)
     rules_by_subject = build_rule_index(config)
     rules = list(rules_by_subject.values())
+    debug_path = os.environ.get("CONTENT_PIPELINE_DEBUG_SEARCH_PATH", "").strip()
 
     if not args.dry_run:
         ensure_label(account, label)
@@ -280,14 +417,31 @@ def main():
     if args.message_id:
         ids = [args.message_id]
     else:
-        ids = collect_message_ids(account, rules, label, args.max_results)
+        ids = collect_message_ids(
+            account,
+            rules,
+            label,
+            args.max_results,
+            debug_path=Path(debug_path) if debug_path else None,
+        )
 
     results = []
     for message_id in ids:
         try:
-            results.append(process_message(account, base, label, rules_by_subject, message_id, dry_run=args.dry_run))
+            results.append(
+                process_message(
+                    account,
+                    base,
+                    label,
+                    rules_by_subject,
+                    message_id,
+                    dry_run=args.dry_run,
+                )
+            )
         except Exception as e:
-            results.append({"messageId": message_id, "status": "error", "error": str(e)})
+            results.append(
+                {"messageId": message_id, "status": "error", "error": str(e)}
+            )
 
     print(json.dumps(results, ensure_ascii=False, indent=2))
     if any(r.get("status") == "error" for r in results):
